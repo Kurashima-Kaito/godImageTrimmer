@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>画像合成・透かし除去ツール</title>
+  <!-- Tailwind CSS (UIデザイン用) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- p5.js本体 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <style>
+    /* p5のキャンバスをレスポンシブにするためのCSS */
+    #canvas-container canvas {
+      max-width: 100%;
+      height: auto !important;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-6 font-sans text-gray-800">
+
+  <div class="max-w-4xl mx-auto">
+    <header class="text-center mb-8">
+      <h1 class="text-3xl font-bold text-gray-900 mb-2">画像処理ツール</h1>
+      <p class="text-gray-600">画像Aと画像Bをアップロードして処理を実行します。</p>
+    </header>
+
+    <!-- コントロールパネル -->
+    <div class="bg-white p-6 rounded-xl shadow-sm mb-6 border border-gray-100">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        
+        <!-- 画像Aアップロード -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">画像A (ベース画像)</label>
+          <input type="file" id="uploadA" accept="image/*" 
+            class="block w-full text-sm text-gray-500
+            file:mr-4 file:py-2 file:px-4
+            file:rounded-md file:border-0
+            file:text-sm file:font-semibold
+            file:bg-blue-50 file:text-blue-700
+            hover:file:bg-blue-100 cursor-pointer" />
+          <p id="statusA" class="text-xs text-gray-400 mt-1">未選択</p>
+        </div>
+
+        <!-- 画像Bアップロード -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">画像B (抽出元画像)</label>
+          <input type="file" id="uploadB" accept="image/*" 
+            class="block w-full text-sm text-gray-500
+            file:mr-4 file:py-2 file:px-4
+            file:rounded-md file:border-0
+            file:text-sm file:font-semibold
+            file:bg-blue-50 file:text-blue-700
+            hover:file:bg-blue-100 cursor-pointer" />
+          <p id="statusB" class="text-xs text-gray-400 mt-1">未選択</p>
+        </div>
+      </div>
+
+      <!-- アクションボタン -->
+      <div class="flex flex-wrap gap-4 justify-center border-t pt-6 border-gray-100">
+        <button id="processBtn" 
+          class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-8 rounded-lg shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          処理を実行
+        </button>
+        <button id="downloadBtn" disabled
+          class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-8 rounded-lg shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          画像を保存
+        </button>
+      </div>
+    </div>
+
+    <!-- キャンバス表示エリア -->
+    <div class="bg-gray-200 rounded-xl flex items-center justify-center min-h-[400px] overflow-hidden p-4" id="canvas-container">
+      <!-- p5.jsのキャンバスがここに挿入されます -->
+      <p id="placeholder-text" class="text-gray-400">処理結果がここに表示されます</p>
+    </div>
+  </div>
+
+  <script>
+    let imageA = null;
+    let imageB = null;
+    let isProcessed = false;
+
+    // UI要素の取得
+    const uploadA = document.getElementById('uploadA');
+    const uploadB = document.getElementById('uploadB');
+    const statusA = document.getElementById('statusA');
+    const statusB = document.getElementById('statusB');
+    const processBtn = document.getElementById('processBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const placeholderText = document.getElementById('placeholder-text');
+
+    // p5.js 初期セットアップ
+    function setup() {
+      // 初期状態ではキャンバスを作らない、または非表示にする
+      let canvas = createCanvas(0, 0);
+      canvas.parent('canvas-container');
+      noLoop(); // アニメーション不要
+    }
+
+    // ファイルアップロードのハンドリング
+    uploadA.addEventListener('change', (e) => handleUpload(e, 'A'));
+    uploadB.addEventListener('change', (e) => handleUpload(e, 'B'));
+
+    function handleUpload(event, type) {
+      const file = event.target.files[0];
+      if (file) {
+        const url = URL.createObjectURL(file);
+        if (type === 'A') {
+          imageA = loadImage(url, () => {
+            statusA.textContent = "読み込み完了！";
+            statusA.classList.replace('text-gray-400', 'text-green-600');
+          });
+        } else {
+          imageB = loadImage(url, () => {
+            statusB.textContent = "読み込み完了！";
+            statusB.classList.replace('text-gray-400', 'text-green-600');
+          });
+        }
+      }
+    }
+
+    // 処理実行ボタン
+    processBtn.addEventListener('click', () => {
+      if (!imageA || !imageB) {
+        alert("画像Aと画像Bの両方を読み込んでください。");
+        return;
+      }
+
+      processBtn.textContent = "処理中...";
+      processBtn.disabled = true;
+
+      // UIの更新を待つために少し遅延させる
+      setTimeout(() => {
+        offCopyRight();
+        processBtn.textContent = "処理完了";
+        processBtn.disabled = false;
+        downloadBtn.disabled = false;
+        placeholderText.style.display = "none";
+      }, 100);
+    });
+
+    // 画像保存ボタン
+    downloadBtn.addEventListener('click', () => {
+      if (isProcessed && imageA) {
+        save(imageA, "cleanImage.png");
+      }
+    });
+
+    // メインの画像処理ロジック
+    function offCopyRight() {
+      // キャンバスを画像Aのサイズに合わせる
+      resizeCanvas(imageA.width, imageA.height);
+      
+      imageA.loadPixels();
+      imageB.loadPixels();
+      
+      const widthA = imageA.width;
+      const heightA = imageA.height;
+      const widthB = imageB.width;
+      const heightB = imageB.height;
+      
+      // 高速化のため、set()を使わず直接pixels配列を操作
+      for(let i = 0; i < heightA; i++) {
+        for(let j = 0; j < widthA; j++) {
+          // 条件式 (元のロジックを保持)
+          if (max(0, i + j - 220) % 375 < 150) {
+            
+            // 画像Bの範囲内かチェック (安全対策)
+            if (i < heightB && j < widthB) {
+              const indexB = (widthB * i + j) * 4;
+              const indexA = (widthA * i + j) * 4;
+              
+              // rgbaのコピー
+              imageA.pixels[indexA] = imageB.pixels[indexB];         // R
+              imageA.pixels[indexA + 1] = imageB.pixels[indexB + 1]; // G
+              imageA.pixels[indexA + 2] = imageB.pixels[indexB + 2]; // B
+              // アルファ値（透明度）は元のimageAを保持するか、上書きするか。通常は上書き
+              imageA.pixels[indexA + 3] = imageB.pixels[indexB + 3]; 
+            }
+          }
+        }
+      }
+      
+      imageA.updatePixels();
+      image(imageA, 0, 0);
+      isProcessed = true;
+    }
+  </script>
+</body>
+</html>
