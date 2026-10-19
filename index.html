@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>画像合成・透かし除去ツール</title>
-  <!-- Tailwind CSS (UIデザイン用) -->
+  <title>画像合成・一括処理ツール</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- p5.js本体 -->
+  <!-- p5.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <!-- JSZip (複数画像の一括ZIPダウンロード用) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
-    /* p5のキャンバスをレスポンシブにするためのCSS */
     #canvas-container canvas {
       max-width: 100%;
       height: auto !important;
       border-radius: 0.5rem;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
   </style>
 </head>
@@ -22,171 +22,285 @@
 
   <div class="max-w-4xl mx-auto">
     <header class="text-center mb-8">
-      <h1 class="text-3xl font-bold text-gray-900 mb-2">画像処理ツール</h1>
-      <p class="text-gray-600">画像Aと画像Bをアップロードして処理を実行します。</p>
+      <h1 class="text-3xl font-bold text-gray-900 mb-2">画像処理ツール (一括処理対応)</h1>
+      <p class="text-gray-600">画像A群と画像B群を読み込み、高速で処理して出力します。</p>
     </header>
 
     <!-- コントロールパネル -->
     <div class="bg-white p-6 rounded-xl shadow-sm mb-6 border border-gray-100">
+      
+      <!-- モード切替 -->
+      <div class="flex items-center justify-end mb-6">
+        <label class="flex items-center cursor-pointer">
+          <div class="relative">
+            <input type="checkbox" id="batchModeToggle" class="sr-only">
+            <div class="block bg-gray-300 w-14 h-8 rounded-full transition-colors duration-300"></div>
+            <div class="dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform duration-300"></div>
+          </div>
+          <span class="ml-3 text-sm font-bold text-gray-700" id="modeLabel">単一画像モード</span>
+        </label>
+      </div>
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        
         <!-- 画像Aアップロード -->
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">画像A (ベース画像)</label>
+          <label class="block text-sm font-medium text-gray-700 mb-2">画像A群 (ベース画像)</label>
           <input type="file" id="uploadA" accept="image/*" 
-            class="block w-full text-sm text-gray-500
-            file:mr-4 file:py-2 file:px-4
-            file:rounded-md file:border-0
-            file:text-sm file:font-semibold
-            file:bg-blue-50 file:text-blue-700
-            hover:file:bg-blue-100 cursor-pointer" />
+            class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
           <p id="statusA" class="text-xs text-gray-400 mt-1">未選択</p>
         </div>
 
         <!-- 画像Bアップロード -->
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">画像B (抽出元画像)</label>
+          <label class="block text-sm font-medium text-gray-700 mb-2">画像B群 (抽出元画像)</label>
           <input type="file" id="uploadB" accept="image/*" 
-            class="block w-full text-sm text-gray-500
-            file:mr-4 file:py-2 file:px-4
-            file:rounded-md file:border-0
-            file:text-sm file:font-semibold
-            file:bg-blue-50 file:text-blue-700
-            hover:file:bg-blue-100 cursor-pointer" />
+            class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
           <p id="statusB" class="text-xs text-gray-400 mt-1">未選択</p>
+        </div>
+      </div>
+
+      <!-- プログレスバー (バッチ処理用) -->
+      <div id="progressContainer" class="hidden mb-6">
+        <div class="flex justify-between text-sm mb-1">
+          <span class="font-medium text-blue-700">処理状況</span>
+          <span id="progressText">0%</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2.5">
+          <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
         </div>
       </div>
 
       <!-- アクションボタン -->
       <div class="flex flex-wrap gap-4 justify-center border-t pt-6 border-gray-100">
-        <button id="processBtn" 
-          class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-8 rounded-lg shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+        <button id="processBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-8 rounded-lg shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
           処理を実行
         </button>
-        <button id="downloadBtn" disabled
-          class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-8 rounded-lg shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+        <button id="downloadBtn" disabled class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-8 rounded-lg shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed hidden">
           画像を保存
         </button>
       </div>
     </div>
 
-    <!-- キャンバス表示エリア -->
-    <div class="bg-gray-200 rounded-xl flex items-center justify-center min-h-[400px] overflow-hidden p-4" id="canvas-container">
-      <!-- p5.jsのキャンバスがここに挿入されます -->
-      <p id="placeholder-text" class="text-gray-400">処理結果がここに表示されます</p>
+    <!-- キャンバス表示エリア (プレビュー) -->
+    <div class="bg-gray-200 rounded-xl flex items-center justify-center min-h-[400px] overflow-hidden p-4 relative" id="canvas-container">
+      <p id="placeholder-text" class="text-gray-400 z-10">プレビューがここに表示されます</p>
     </div>
   </div>
 
-  <script>
-    let imageA = null;
-    let imageB = null;
-    let isProcessed = false;
+  <style>
+    /* トグルスイッチのアニメーション */
+    input:checked ~ .block { background-color: #3b82f6; }
+    input:checked ~ .dot { transform: translateX(100%); }
+  </style>
 
-    // UI要素の取得
+  <script>
+    let isBatchMode = false;
+    let filesA = [];
+    let filesB = [];
+    let singleProcessedImage = null;
+
+    // UI要素
+    const toggle = document.getElementById('batchModeToggle');
+    const modeLabel = document.getElementById('modeLabel');
     const uploadA = document.getElementById('uploadA');
     const uploadB = document.getElementById('uploadB');
     const statusA = document.getElementById('statusA');
     const statusB = document.getElementById('statusB');
     const processBtn = document.getElementById('processBtn');
     const downloadBtn = document.getElementById('downloadBtn');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
     const placeholderText = document.getElementById('placeholder-text');
 
-    // p5.js 初期セットアップ
     function setup() {
-      // 初期状態ではキャンバスを作らない、または非表示にする
       let canvas = createCanvas(0, 0);
       canvas.parent('canvas-container');
-      noLoop(); // アニメーション不要
+      noLoop();
     }
 
-    // ファイルアップロードのハンドリング
-    uploadA.addEventListener('change', (e) => handleUpload(e, 'A'));
-    uploadB.addEventListener('change', (e) => handleUpload(e, 'B'));
+    // モード切り替え処理
+    toggle.addEventListener('change', (e) => {
+      isBatchMode = e.target.checked;
+      modeLabel.textContent = isBatchMode ? "一括処理モード (ZIP出力)" : "単一画像モード";
+      
+      if (isBatchMode) {
+        uploadA.multiple = true;
+        uploadB.multiple = true;
+        downloadBtn.classList.add('hidden'); // バッチモードではZIP自動ダウンロード
+      } else {
+        uploadA.multiple = false;
+        uploadB.multiple = false;
+        downloadBtn.classList.remove('hidden');
+      }
+      
+      // リセット
+      uploadA.value = ''; uploadB.value = '';
+      filesA = []; filesB = [];
+      updateStatus(statusA, 0); updateStatus(statusB, 0);
+    });
 
-    function handleUpload(event, type) {
-      const file = event.target.files[0];
-      if (file) {
-        const url = URL.createObjectURL(file);
-        if (type === 'A') {
-          imageA = loadImage(url, () => {
-            statusA.textContent = "読み込み完了！";
-            statusA.classList.replace('text-gray-400', 'text-green-600');
-          });
-        } else {
-          imageB = loadImage(url, () => {
-            statusB.textContent = "読み込み完了！";
-            statusB.classList.replace('text-gray-400', 'text-green-600');
-          });
-        }
+    // ファイル選択ハンドラー
+    uploadA.addEventListener('change', (e) => {
+      filesA = Array.from(e.target.files).sort((a, b) => a.name.localeCompare(b.name));
+      updateStatus(statusA, filesA.length);
+    });
+
+    uploadB.addEventListener('change', (e) => {
+      filesB = Array.from(e.target.files).sort((a, b) => a.name.localeCompare(b.name));
+      updateStatus(statusB, filesB.length);
+    });
+
+    function updateStatus(element, count) {
+      if (count === 0) {
+        element.textContent = "未選択";
+        element.className = "text-xs text-gray-400 mt-1";
+      } else {
+        element.textContent = `${count}件のファイルを選択中`;
+        element.className = "text-xs text-green-600 font-bold mt-1";
       }
     }
 
-    // 処理実行ボタン
-    processBtn.addEventListener('click', () => {
-      if (!imageA || !imageB) {
-        alert("画像Aと画像Bの両方を読み込んでください。");
+    // p5の画像を非同期で読み込むラッパー関数
+    function loadP5Image(file) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        loadImage(url, (img) => resolve(img), (err) => reject(err));
+      });
+    }
+
+    // メインの処理実行
+    processBtn.addEventListener('click', async () => {
+      if (filesA.length === 0 || filesB.length === 0) {
+        alert("画像Aと画像Bを読み込んでください。");
         return;
       }
 
-      processBtn.textContent = "処理中...";
-      processBtn.disabled = true;
-
-      // UIの更新を待つために少し遅延させる
-      setTimeout(() => {
-        offCopyRight();
-        processBtn.textContent = "処理完了";
-        processBtn.disabled = false;
-        downloadBtn.disabled = false;
-        placeholderText.style.display = "none";
-      }, 100);
-    });
-
-    // 画像保存ボタン
-    downloadBtn.addEventListener('click', () => {
-      if (isProcessed && imageA) {
-        save(imageA, "cleanImage.png");
+      if (isBatchMode && filesA.length !== filesB.length) {
+        alert(`画像A (${filesA.length}枚) と 画像B (${filesB.length}枚) の数が一致しません！`);
+        return;
       }
+
+      processBtn.disabled = true;
+      processBtn.textContent = "処理中...";
+
+      if (isBatchMode) {
+        await runBatchProcess();
+      } else {
+        await runSingleProcess();
+      }
+
+      processBtn.disabled = false;
+      processBtn.textContent = "処理を実行";
     });
 
-    // メインの画像処理ロジック
-    function offCopyRight() {
-      // キャンバスを画像Aのサイズに合わせる
-      resizeCanvas(imageA.width, imageA.height);
+    // 単一画像の処理
+    async function runSingleProcess() {
+      try {
+        const imgA = await loadP5Image(filesA[0]);
+        const imgB = await loadP5Image(filesB[0]);
+        
+        singleProcessedImage = applyFilter(imgA, imgB);
+        
+        // プレビュー表示
+        resizeCanvas(singleProcessedImage.width, singleProcessedImage.height);
+        image(singleProcessedImage, 0, 0);
+        placeholderText.style.display = "none";
+        downloadBtn.disabled = false;
+        
+      } catch (err) {
+        console.error(err);
+        alert("画像の読み込みまたは処理に失敗しました。");
+      }
+    }
+
+    // バッチ（一括）処理とZIP生成
+    async function runBatchProcess() {
+      progressContainer.classList.remove('hidden');
+      const zip = new JSZip();
+      const folder = zip.folder("processed_images");
       
-      imageA.loadPixels();
-      imageB.loadPixels();
+      const total = filesA.length;
       
-      const widthA = imageA.width;
-      const heightA = imageA.height;
-      const widthB = imageB.width;
-      const heightB = imageB.height;
+      for (let i = 0; i < total; i++) {
+        // 進捗バー更新
+        const percent = Math.round((i / total) * 100);
+        progressBar.style.width = `${percent}%`;
+        progressText.textContent = `${percent}% (${i + 1}/${total})`;
+        
+        const imgA = await loadP5Image(filesA[i]);
+        const imgB = await loadP5Image(filesB[i]);
+        
+        const processedImg = applyFilter(imgA, imgB);
+        
+        // p5.ImageのキャンバスからBase64を取得してZIPに追加
+        const dataUrl = processedImg.canvas.toDataURL("image/png");
+        const base64Data = dataUrl.split(',')[1];
+        
+        // 元のファイル名を利用して保存（A側のファイル名をベースにする）
+        const newFileName = `processed_${filesA[i].name.split('.')[0]}.png`;
+        folder.file(newFileName, base64Data, {base64: true});
+        
+        // 最後の1枚をプレビュー表示
+        if (i === total - 1) {
+          resizeCanvas(processedImg.width, processedImg.height);
+          image(processedImg, 0, 0);
+          placeholderText.style.display = "none";
+        }
+      }
+
+      // ZIP完了フェーズ
+      progressBar.style.width = `100%`;
+      progressText.textContent = "ZIPファイル作成中...";
       
-      // 高速化のため、set()を使わず直接pixels配列を操作
+      const zipContent = await zip.generateAsync({type:"blob"});
+      
+      // ダウンロード実行
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(zipContent);
+      link.download = "processed_images.zip";
+      link.click();
+
+      progressText.textContent = "完了！";
+      setTimeout(() => progressContainer.classList.add('hidden'), 3000);
+    }
+
+    // コア処理関数 (高速化されたピクセル操作)
+    function applyFilter(imgA, imgB) {
+      imgA.loadPixels();
+      imgB.loadPixels();
+      
+      const widthA = imgA.width;
+      const heightA = imgA.height;
+      const widthB = imgB.width;
+      const heightB = imgB.height;
+      
       for(let i = 0; i < heightA; i++) {
         for(let j = 0; j < widthA; j++) {
-          // 条件式 (元のロジックを保持)
-          if (max(0, i + j - 220) % 375 < 150) {
-            
-            // 画像Bの範囲内かチェック (安全対策)
+          if (Math.max(0, i + j - 220) % 375 < 150) {
             if (i < heightB && j < widthB) {
               const indexB = (widthB * i + j) * 4;
               const indexA = (widthA * i + j) * 4;
               
-              // rgbaのコピー
-              imageA.pixels[indexA] = imageB.pixels[indexB];         // R
-              imageA.pixels[indexA + 1] = imageB.pixels[indexB + 1]; // G
-              imageA.pixels[indexA + 2] = imageB.pixels[indexB + 2]; // B
-              // アルファ値（透明度）は元のimageAを保持するか、上書きするか。通常は上書き
-              imageA.pixels[indexA + 3] = imageB.pixels[indexB + 3]; 
+              imgA.pixels[indexA] = imgB.pixels[indexB];
+              imgA.pixels[indexA + 1] = imgB.pixels[indexB + 1];
+              imgA.pixels[indexA + 2] = imgB.pixels[indexB + 2];
+              imgA.pixels[indexA + 3] = imgB.pixels[indexB + 3]; 
             }
           }
         }
       }
-      
-      imageA.updatePixels();
-      image(imageA, 0, 0);
-      isProcessed = true;
+      imgA.updatePixels();
+      return imgA;
     }
+
+    // 単一画像の保存ボタン
+    downloadBtn.addEventListener('click', () => {
+      if (singleProcessedImage && filesA[0]) {
+        save(singleProcessedImage, `processed_${filesA[0].name.split('.')[0]}.png`);
+      }
+    });
+
   </script>
 </body>
 </html>
